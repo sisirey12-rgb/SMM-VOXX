@@ -1,48 +1,32 @@
 # VOX SMM Panel
 
-A new purple branded creator services workspace with a React/Vite frontend, Node.js/Express API, and MySQL storage. The Ezkify adapter follows the provider's documented API v2 format. **The default provider mode is a safe demo.** Demo orders are simulations and do not contact Ezkify.
+VOX is a purple creator-services workspace with a React/Vite frontend, a Node.js/Express API, and MySQL storage. OrganicSMM is the only integrated provider. Live access is read-only: VOX loads the provider catalog and balance. Live order placement and order-status lookup are disabled. The default mode is a safe demo; demo orders are local simulations and never contact OrganicSMM.
 
-## Provider API verified
+## OrganicSMM API integration
 
-Repository: [ezkify/smm-panel-api](https://github.com/ezkify/smm-panel-api)  
-Reference: [API v2 reference](https://github.com/ezkify/smm-panel-api/blob/main/docs/api-reference.md)
+The adapter uses the documented endpoint `POST https://organicsmm.online/functions/v1/public-api` and sends JSON with the server-side `key` and `action` fields. It supports `services` and `balance`, validates and normalizes their documented response shapes, and never exposes the API key to the browser. The full provider catalog is available in the VOX interface as a clearly marked read-only list.
 
-- Base URL: `https://ezkify.com/api/v2`
-- Method and body: `POST`, `application/x-www-form-urlencoded`
-- Authentication: `key=YOUR_API_KEY` in the form body
-- Actions implemented: `services`, `balance`, `add`, and single-order `status`
-- Documented service fields used: `service`, `name`, `rate`, `min`, `max`, `category`, `refill`
-- Documented order fields used: `service`, `link`, `quantity`; response `order`
-- Documented status response fields used: `status`, `remains`, `charge`
-- Provider errors with an `error` field are returned as a safe API error.
-
-The upstream reference also documents refill, refill status, and cancel. They are intentionally not exposed in this starter API. The provider's example catalog contains engagement services. VOX filters service names/categories associated with follower, like, view, comment, vote, and similar metric manipulation, and blocks these from live ordering. Live ordering additionally requires an explicit service ID allowlist. Review provider terms and the authorization for every service before enabling any live service.
-
-This starter submits the documented standard quantity order fields only. The API reference also describes custom-comment, package, drip-feed/subscription, and poll-vote order forms; those service-specific forms are not implemented here.
-
-## OrganicSMM read-only connection
-
-The API access page documents `POST https://organicsmm.online/functions/v1/public-api` with a JSON body containing `key` and `action`. VOX can call the `services` and `balance` actions in live mode. The complete returned catalog is shown in a clearly marked read-only view so an administrator can inspect provider offerings. The `add` and `status` actions are disabled: this provider advertises automated engagement designed to appear organic, which is outside the project's permitted use. No OrganicSMM listing can be ordered through VOX. Do not configure an OrganicSMM key in a browser or frontend environment variable.
-
-To use its read-only endpoints, set `PROVIDER_NAME=organicsmm`, `PROVIDER_MODE=live`, and `ORGANIC_SMM_API_KEY` in the backend's private environment. No key is included in this archive.
+Set `PROVIDER_MODE=live` and `ORGANIC_SMM_API_KEY` in the backend environment to connect your account. Do not paste the API key into source files, frontend variables, or chat. Without the key, keep `PROVIDER_MODE=mock` to use the demo experience.
 
 ## Project structure
 
 ```text
 VOX-SMM/
-├── backend/src/server.js       # REST API, auth, provider adapter
-├── frontend/src/               # React responsive application
-├── database/schema.sql         # MySQL schema/migration
-├── .env.example                # Configuration template, no secrets
+├── backend/src/server.js              # Express API, authentication, OrganicSMM adapter
+├── backend/src/providers/organicsmm.js # OrganicSMM read-only integration
+├── frontend/src/                       # Responsive React application
+├── database/schema.sql                 # MySQL schema
+├── vercel.json                         # Frontend/backend Vercel services and routing
+├── .env.example                        # Configuration template, no secrets
 └── README.md
 ```
 
 ## Local setup
 
-Requirements: Node.js 20+, MySQL 8+.
+Requirements: Node.js 20+ and MySQL 8+.
 
-1. Create the MySQL schema with `mysql -u root -p < database/schema.sql`.
-2. Copy `.env.example` to `.env` and set the MySQL connection, a random JWT secret, and a strong administrator password. The administrator is created on first server start.
+1. Create the database schema with `mysql -u root -p < database/schema.sql`.
+2. Copy `.env.example` to `.env`. Set a random JWT secret, a strong admin password, and your MySQL connection values. The administrator is created on first server start.
 3. Install and start:
 
    ```sh
@@ -52,42 +36,36 @@ Requirements: Node.js 20+, MySQL 8+.
    npm run dev
    ```
 
-4. Open `http://localhost:5173`. Sign in with the `ADMIN_EMAIL` and `ADMIN_PASSWORD` values you set in `.env`.
+4. Open `http://localhost:5173` and sign in with `ADMIN_EMAIL` and `ADMIN_PASSWORD` from `.env`.
 
-## Provider configuration
+## Vercel multi-service deployment
 
-Keep `PROVIDER_MODE=mock` until deployment is ready. In mock mode the app shows a small demonstration catalog; orders are stored locally with `is_demo=true`, carry a `Demo only` status, and never contact the provider.
+The root `vercel.json` defines two services: `backend` (Express, rooted at `backend/`) and `frontend` (Vite, rooted at `frontend/`). Requests to `/api` and `/api/*` route to the backend; all other paths route to the frontend. The frontend calls the API through same-origin `/api/...` browser requests, so no service binding is used. MySQL and OrganicSMM are external services.
 
-To enable live mode, configure these only in the backend deployment's private environment settings:
+Vercel runs Express as a function. The API exports the Express app and does not call `listen()` or serve `frontend/dist` when `VERCEL=1`. The local Node host keeps its normal listener and optional static frontend serving. The admin account is initialized once per warm function instance when the login route is first called.
 
-```dotenv
-PROVIDER_MODE=live
-EZKIFY_API_KEY=your-provider-key
-EZKIFY_ALLOWED_SERVICE_IDS=reviewed-id-1,reviewed-id-2
-```
+1. Import the GitHub repository as a Vercel project with the repository root as the project root.
+2. Provision a MySQL database reachable from Vercel and run `database/schema.sql` once.
+3. Add these environment variables in Vercel Project Settings for the backend runtime: `JWT_SECRET` (at least 32 random characters), `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_DATABASE`, `MYSQL_USER`, and `MYSQL_PASSWORD`. Start with `PROVIDER_MODE=mock`.
+4. Deploy. To connect OrganicSMM, set `PROVIDER_MODE=live` and configure `ORGANIC_SMM_API_KEY` in Vercel's private environment settings. Never add provider secrets to `VITE_*` variables.
 
-The allowlist must contain only services you have personally reviewed as authorized and compliant. The server also filters known engagement manipulation terms. Never put the provider key in frontend variables, browser code, a committed `.env`, or chat. Keep `.env` private; `.gitignore` excludes it.
+## Node.js host deployment
 
-## Production deployment
+1. Provision a Node.js 20+ host and managed MySQL database. Ensure the database accepts connections from the app host.
+2. Run `database/schema.sql` once against the database.
+3. Set the values from `.env.example` in the host's private environment. Use `NODE_ENV=production`, a unique long `JWT_SECRET`, and a strong `ADMIN_PASSWORD`.
+4. Install dependencies, build the frontend with `npm run build`, then start the API with `npm start`.
+5. Use HTTPS, back up MySQL, and configure health monitoring for `/api/health`.
 
-1. Provision a Node.js 20+ host and managed MySQL database. Restrict database network access to the app host.
-2. Run the schema once against the production database.
-3. Set all `.env.example` values in the host's encrypted environment configuration. Use `NODE_ENV=production`, `APP_ORIGIN` set to the public site origin, a unique long `JWT_SECRET`, and a strong `ADMIN_PASSWORD`. Start with `PROVIDER_MODE=mock`.
-4. Build the frontend using `npm install`, `npm --prefix backend install`, `npm --prefix frontend install`, then `npm run build`. Start with `npm start`; production mode serves `frontend/dist` from the Express app.
-5. Sign in as the administrator, confirm the demo experience, and review provider authorization and terms before any service IDs are allowlisted and live mode is enabled.
-6. Use HTTPS, rotate credentials if exposed, back up MySQL, and configure your host's normal process health monitoring at `/api/health`.
+## API routes
 
-## REST API
-
-- `POST /api/auth/login` — email/password; returns a 12-hour bearer token.
+- `POST /api/auth/login` — sign in and receive a 12-hour bearer token.
 - `GET /api/auth/me` — current account.
-- `GET /api/services` — filtered catalog and `mock`/`live` mode.
-- `GET /api/balance` — provider balance (zero in mock mode).
-- `GET /api/orders` — current user's latest 100 orders.
-- `POST /api/orders` — validated service, URL, quantity; live requests must match the allowlist.
-- `GET /api/orders/:id/status` — status for a current user's order.
-- `GET /api/admin/config` — administrator view of provider mode, key presence, allowlist and policy.
+- `GET /api/services` — OrganicSMM service catalog (full list in live mode, demo list in mock mode).
+- `GET /api/balance` — OrganicSMM balance (demo value in mock mode).
+- `GET /api/orders` — current user's latest 100 saved orders.
+- `POST /api/orders` — demo-only simulations in mock mode; returns a forbidden response in live mode.
+- `GET /api/orders/:id/status` — demo status only; live OrganicSMM status lookups are disabled.
+- `GET /api/admin/config` — administrator view of provider mode and whether the server key is configured.
 
-When `PROVIDER_NAME=organicsmm`, `/api/services` and `/api/balance` use OrganicSMM. `/api/orders` cannot place OrganicSMM orders, and OrganicSMM order-status lookups are not supported.
-
-Authentication uses bcrypt-hashed passwords and signed JWTs. The API includes Helmet headers, exact-origin CORS, bounded JSON bodies, login rate limiting, input validation, ownership checks for orders, and generic unexpected error responses. Public self-registration and customer payment collection are not included.
+Authentication uses bcrypt-hashed passwords and signed JWTs. The API includes Helmet headers, bounded JSON bodies, login rate limiting, input validation, order ownership checks, and safe error responses. Public self-registration and customer payment collection are not included.
